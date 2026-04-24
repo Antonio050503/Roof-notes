@@ -2,7 +2,6 @@
   "name": "roofnotes",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
