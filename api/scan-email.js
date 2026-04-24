@@ -64,7 +64,6 @@ export default async function handler(req, res) {
     const processed = [];
 
     for (const msg of messages) {
-      // Apply label IMMEDIATELY to prevent duplicate processing
       await gmail.users.messages.modify({
         userId: 'me',
         id: msg.id,
@@ -78,21 +77,4 @@ export default async function handler(req, res) {
       });
 
       const payload = full.data.payload;
-      const headers = payload.headers || [];
-      const subject = headers.find(function(h) { return h.name === 'Subject'; })?.value || '';
-
-      let body = '';
-
-      if (payload.parts) {
-        for (const part of payload.parts) {
-          if (part.mimeType === 'text/plain' && part.body && part.body.data) {
-            body += Buffer.from(part.body.data, 'base64').toString('utf-8');
-          }
-        }
-      } else if (payload.body && payload.body.data) {
-        body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-      }
-
-      if (!body.trim()) continue;
-
-      const anthropicRespo
+      const headers =
