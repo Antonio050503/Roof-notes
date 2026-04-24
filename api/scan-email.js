@@ -16,7 +16,7 @@ export default async function handler(req, res) {
 
     const listResponse = await gmail.users.messages.list({
       userId: 'me',
-      q: 'subject:RoofNotes in:anywhere',
+      q: 'RoofNotes',
       maxResults: 10,
     });
 
