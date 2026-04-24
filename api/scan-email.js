@@ -33,6 +33,8 @@ function formatNotes(notes, subject) {
   return out;
 }
 
+const PROCESSED_LABEL_ID = 'Label_1236778203372123741';
+
 export default async function handler(req, res) {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -47,22 +49,6 @@ export default async function handler(req, res) {
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    // Get or create the RoofNotes-Processed label
-    const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
-    const labels = labelsResponse.data.labels || [];
-    let processedLabel = labels.find(function(l) { return l.name === 'RoofNotes-Processed'; });
-
-    if (!processedLabel) {
-      const newLabel = await gmail.users.labels.create({
-        userId: 'me',
-        requestBody: { name: 'RoofNotes-Processed' },
-      });
-      processedLabel = newLabel.data;
-    }
-
-    const processedLabelId = processedLabel.id;
-
-    // Only find RoofNotes emails that haven't been processed yet
     const listResponse = await gmail.users.messages.list({
       userId: 'me',
       q: 'subject:RoofNotes -label:RoofNotes-Processed',
@@ -78,6 +64,13 @@ export default async function handler(req, res) {
     const processed = [];
 
     for (const msg of messages) {
+      // Apply label IMMEDIATELY to prevent duplicate processing
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: msg.id,
+        requestBody: { addLabelIds: [PROCESSED_LABEL_ID] },
+      });
+
       const full = await gmail.users.messages.get({
         userId: 'me',
         id: msg.id,
@@ -100,84 +93,6 @@ export default async function handler(req, res) {
         body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
       }
 
-      if (!body.trim()) {
-        // Still mark as processed so we don't keep retrying
-        await gmail.users.messages.modify({
-          userId: 'me',
-          id: msg.id,
-          requestBody: { addLabelIds: ['Label_1236778203372123741'] },
-        });
-        continue;
-      }
+      if (!body.trim()) continue;
 
-      const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-5',
-          max_tokens: 1000,
-          system: 'You are an AI assistant for a roofing project manager. Analyze phone call transcripts and extract structured information. Return ONLY a valid JSON object with these keys: callSummary, clientContact, propertyJobDetails, scopeOfWork, estimatingFinance, scheduling, salesPipeline, actionItems, internalNotes, personalConnection. Each key should be an array of bullet point strings. Only include keys that have actual information from the call. Return ONLY the JSON, no markdown, no explanation.',
-          messages: [{ role: 'user', content: 'Analyze this roofing call transcript:\n\n' + body }],
-        }),
-      });
-
-      const anthropicData = await anthropicResponse.json();
-
-      if (!anthropicData.content || anthropicData.content.length === 0) continue;
-
-      const text = anthropicData.content.map(function(b) { return b.text || ''; }).join('');
-      const clean = text.replace(/```json|```/g, '').trim();
-
-      let notes;
-      try {
-        notes = JSON.parse(clean);
-      } catch (parseErr) {
-        await gmail.users.messages.modify({
-          userId: 'me',
-          id: msg.id,
-          requestBody: { addLabelIds: ['Label_1236778203372123741'] },
-        });
-        continue;
-      }
-
-      const formattedNotes = formatNotes(notes, subject);
-
-      const emailLines = [
-        'To: antonio@roofsolutionsca.com',
-        'Subject: RoofNotes Summary: ' + subject,
-        'Content-Type: text/plain; charset=utf-8',
-        '',
-        formattedNotes
-      ].join('\r\n');
-
-      const encodedEmail = Buffer.from(emailLines)
-        .toString('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '');
-
-      await gmail.users.messages.send({
-        userId: 'me',
-        requestBody: { raw: encodedEmail },
-      });
-
-      // Mark as processed with label
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: msg.id,
-        requestBody: { addLabelIds: [processedLabelId] },
-      });
-
-      processed.push({ id: msg.id, subject, notes });
-    }
-
-    res.status(200).json({ processed: processed.length, results: processed });
-
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to scan email', details: err.message });
-  }
-}
+      const anthropicRespo
