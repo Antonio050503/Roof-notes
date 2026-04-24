@@ -77,4 +77,79 @@ export default async function handler(req, res) {
       });
 
       const payload = full.data.payload;
-      const headers =
+      const headers = payload.headers || [];
+      const subject = headers.find(function(h) { return h.name === 'Subject'; })?.value || '';
+
+      let body = '';
+
+      if (payload.parts) {
+        for (const part of payload.parts) {
+          if (part.mimeType === 'text/plain' && part.body && part.body.data) {
+            body += Buffer.from(part.body.data, 'base64').toString('utf-8');
+          }
+        }
+      } else if (payload.body && payload.body.data) {
+        body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+      }
+
+      if (!body.trim()) continue;
+
+      const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 1000,
+          system: 'You are an AI assistant for a roofing project manager. Analyze phone call transcripts and extract structured information. Return ONLY a valid JSON object with these keys: callSummary, clientContact, propertyJobDetails, scopeOfWork, estimatingFinance, scheduling, salesPipeline, actionItems, internalNotes, personalConnection. Each key should be an array of bullet point strings. Only include keys that have actual information from the call. Return ONLY the JSON, no markdown, no explanation.',
+          messages: [{ role: 'user', content: 'Analyze this roofing call transcript:\n\n' + body }],
+        }),
+      });
+
+      const anthropicData = await anthropicResponse.json();
+
+      if (!anthropicData.content || anthropicData.content.length === 0) continue;
+
+      const text = anthropicData.content.map(function(b) { return b.text || ''; }).join('');
+      const clean = text.replace(/```json|```/g, '').trim();
+
+      let notes;
+      try {
+        notes = JSON.parse(clean);
+      } catch (parseErr) {
+        continue;
+      }
+
+      const formattedNotes = formatNotes(notes, subject);
+
+      const emailLines = [
+        'To: antonio@roofsolutionsca.com',
+        'Subject: RoofNotes Summary: ' + subject,
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        formattedNotes
+      ].join('\r\n');
+
+      const encodedEmail = Buffer.from(emailLines)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: encodedEmail },
+      });
+
+      processed.push({ id: msg.id, subject, notes });
+    }
+
+    res.status(200).json({ processed: processed.length, results: processed });
+
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to scan email', details: err.message });
+  }
+}
