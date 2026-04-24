@@ -47,16 +47,32 @@ export default async function handler(req, res) {
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
+    // Get or create the RoofNotes-Processed label
+    const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
+    const labels = labelsResponse.data.labels || [];
+    let processedLabel = labels.find(function(l) { return l.name === 'RoofNotes-Processed'; });
+
+    if (!processedLabel) {
+      const newLabel = await gmail.users.labels.create({
+        userId: 'me',
+        requestBody: { name: 'RoofNotes-Processed' },
+      });
+      processedLabel = newLabel.data;
+    }
+
+    const processedLabelId = processedLabel.id;
+
+    // Only find RoofNotes emails that haven't been processed yet
     const listResponse = await gmail.users.messages.list({
       userId: 'me',
-      q: 'in:inbox',
+      q: 'subject:RoofNotes -label:RoofNotes-Processed',
       maxResults: 10,
     });
 
     const messages = listResponse.data.messages;
 
     if (!messages || messages.length === 0) {
-      return res.status(200).json({ processed: 0, message: 'No new emails found' });
+      return res.status(200).json({ processed: 0, message: 'No new RoofNotes emails found' });
     }
 
     const processed = [];
@@ -72,8 +88,6 @@ export default async function handler(req, res) {
       const headers = payload.headers || [];
       const subject = headers.find(function(h) { return h.name === 'Subject'; })?.value || '';
 
-      if (!subject.includes('RoofNotes')) continue;
-
       let body = '';
 
       if (payload.parts) {
@@ -86,7 +100,15 @@ export default async function handler(req, res) {
         body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
       }
 
-      if (!body.trim()) continue;
+      if (!body.trim()) {
+        // Still mark as processed so we don't keep retrying
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id: msg.id,
+          requestBody: { addLabelIds: [processedLabelId] },
+        });
+        continue;
+      }
 
       const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -114,6 +136,11 @@ export default async function handler(req, res) {
       try {
         notes = JSON.parse(clean);
       } catch (parseErr) {
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id: msg.id,
+          requestBody: { addLabelIds: [processedLabelId] },
+        });
         continue;
       }
 
@@ -138,10 +165,11 @@ export default async function handler(req, res) {
         requestBody: { raw: encodedEmail },
       });
 
+      // Mark as processed with label
       await gmail.users.messages.modify({
         userId: 'me',
         id: msg.id,
-        requestBody: { removeLabelIds: ['UNREAD'] },
+        requestBody: { addLabelIds: [processedLabelId] },
       });
 
       processed.push({ id: msg.id, subject, notes });
