@@ -51,7 +51,10 @@ export default async function handler(req, res) {
         body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
       }
 
-      if (!body.trim()) continue;
+      if (!body.trim()) {
+  processed.push({ id: msg.id, subject, error: 'No body found', payloadKeys: Object.keys(payload), hasParts: !!payload.parts, hasBody: !!payload.body });
+  continue;
+}
 
       const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
