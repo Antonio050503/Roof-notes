@@ -23,7 +23,12 @@ export default async function handler(req, res) {
     const messages = listResponse.data.messages;
 
     if (!messages || messages.length === 0) {
-      return res.status(200).json({ processed: 0, message: 'No new RoofNotes emails found' });
+      return res.status(200).json({ 
+        processed: 0, 
+        message: 'No emails found',
+        gmailResponse: listResponse.data,
+        query: 'in:inbox'
+      });
     }
 
     const processed = [];
