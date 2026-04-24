@@ -63,6 +63,7 @@ export default async function handler(req, res) {
     const processedLabelId = processedLabel.id;
 
     // Only find RoofNotes emails that haven't been processed yet
+    return res.status(200).json({ labels: labels.map(function(l) { return { id: l.id, name: l.name }; }) });
     const listResponse = await gmail.users.messages.list({
       userId: 'me',
       q: 'subject:RoofNotes -label:RoofNotes-Processed',
