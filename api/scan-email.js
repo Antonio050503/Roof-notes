@@ -1,5 +1,38 @@
 import { google } from 'googleapis';
 
+function formatNotes(notes, subject) {
+  const CATEGORIES = [
+    { key: 'callSummary', label: 'CALL SUMMARY' },
+    { key: 'clientContact', label: 'CLIENT & CONTACT INFO' },
+    { key: 'propertyJobDetails', label: 'PROPERTY & JOB DETAILS' },
+    { key: 'scopeOfWork', label: 'SCOPE OF WORK' },
+    { key: 'estimatingFinance', label: 'ESTIMATING & FINANCE' },
+    { key: 'scheduling', label: 'SCHEDULING' },
+    { key: 'salesPipeline', label: 'SALES & PIPELINE' },
+    { key: 'actionItems', label: 'ACTION ITEMS' },
+    { key: 'internalNotes', label: 'INTERNAL NOTES' },
+    { key: 'personalConnection', label: 'PERSONAL / CONNECTION COMMENTS' },
+  ];
+
+  let out = 'ROOFNOTES CALL SUMMARY\n';
+  out += '='.repeat(50) + '\n';
+  out += 'Call: ' + subject + '\n';
+  out += 'Processed: ' + new Date().toLocaleString() + '\n';
+  out += '='.repeat(50) + '\n\n';
+
+  CATEGORIES.forEach(function(cat) {
+    const items = notes[cat.key];
+    if (items && items.length > 0) {
+      out += cat.label + '\n';
+      out += '-'.repeat(cat.label.length) + '\n';
+      items.forEach(function(item) { out += '- ' + item + '\n'; });
+      out += '\n';
+    }
+  });
+
+  return out;
+}
+
 export default async function handler(req, res) {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -37,7 +70,7 @@ export default async function handler(req, res) {
 
       const payload = full.data.payload;
       const headers = payload.headers || [];
-      const subject = headers.find(h => h.name === 'Subject')?.value || '';
+      const subject = headers.find(function(h) { return h.name === 'Subject'; })?.value || '';
 
       if (!subject.includes('RoofNotes')) continue;
 
@@ -66,7 +99,7 @@ export default async function handler(req, res) {
           model: 'claude-sonnet-4-5',
           max_tokens: 1000,
           system: 'You are an AI assistant for a roofing project manager. Analyze phone call transcripts and extract structured information. Return ONLY a valid JSON object with these keys: callSummary, clientContact, propertyJobDetails, scopeOfWork, estimatingFinance, scheduling, salesPipeline, actionItems, internalNotes, personalConnection. Each key should be an array of bullet point strings. Only include keys that have actual information from the call. Return ONLY the JSON, no markdown, no explanation.',
-          messages: [{ role: 'user', content: `Analyze this roofing call transcript:\n\n${body}` }],
+          messages: [{ role: 'user', content: 'Analyze this roofing call transcript:\n\n' + body }],
         }),
       });
 
@@ -74,7 +107,7 @@ export default async function handler(req, res) {
 
       if (!anthropicData.content || anthropicData.content.length === 0) continue;
 
-      const text = anthropicData.content.map((b) => b.text || '').join('');
+      const text = anthropicData.content.map(function(b) { return b.text || ''; }).join('');
       const clean = text.replace(/```json|```/g, '').trim();
 
       let notes;
@@ -83,6 +116,27 @@ export default async function handler(req, res) {
       } catch (parseErr) {
         continue;
       }
+
+      const formattedNotes = formatNotes(notes, subject);
+
+      const emailLines = [
+        'To: antonio@roofsolutionsca.com',
+        'Subject: RoofNotes Summary: ' + subject,
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        formattedNotes
+      ].join('\r\n');
+
+      const encodedEmail = Buffer.from(emailLines)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: { raw: encodedEmail },
+      });
 
       await gmail.users.messages.modify({
         userId: 'me',
