@@ -1,6 +1,4 @@
-🎉 Gmail is working perfectly! It found 201 messages in your inbox!
-The problem was just the subject filter. Now let's put the full working code back with the RoofNotes filter. Go to GitHub → api/scan-email.js → replace everything with:
-javascriptimport { google } from 'googleapis';
+import { google } from 'googleapis';
 
 export default async function handler(req, res) {
   try {
@@ -25,7 +23,7 @@ export default async function handler(req, res) {
     const messages = listResponse.data.messages;
 
     if (!messages || messages.length === 0) {
-      return res.status(200).json({ processed: 0, message: 'No RoofNotes emails found', totalInbox: listResponse.data.resultSizeEstimate });
+      return res.status(200).json({ processed: 0, message: 'No RoofNotes emails found' });
     }
 
     const processed = [];
@@ -40,7 +38,7 @@ export default async function handler(req, res) {
       const payload = full.data.payload;
       const headers = payload.headers || [];
       const subject = headers.find(h => h.name === 'Subject')?.value || '';
-      
+
       let body = '';
 
       if (payload.parts) {
@@ -71,12 +69,12 @@ export default async function handler(req, res) {
       });
 
       const anthropicData = await anthropicResponse.json();
-      
+
       if (!anthropicData.content || anthropicData.content.length === 0) continue;
 
       const text = anthropicData.content.map((b) => b.text || '').join('');
       const clean = text.replace(/```json|```/g, '').trim();
-      
+
       let notes;
       try {
         notes = JSON.parse(clean);
