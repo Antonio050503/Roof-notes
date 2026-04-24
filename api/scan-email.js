@@ -127,7 +127,7 @@ export default async function handler(req, res) {
 
       const emailLines = [
         'To: antonio@roofsolutionsca.com',
-        'Subject: RoofNotes Summary: ' + subject,
+        'Subject: Call Summary: ' + subject,
         'Content-Type: text/plain; charset=utf-8',
         '',
         formattedNotes
